@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openchoreo-single.fullname" . }}-lb
+  labels:
+    app.kubernetes.io/name: openchoreo
+  annotations:
+    {{- include "openchoreo.serviceAnnotations" . | nindent 4 }}
+spec:
+  type: {{ .Values.ingressController.service.type }}
+  ports:
+    - name: control
+      port: 80
+      targetPort: {{ .Values.controlPlane.servicePort }}
+      protocol: TCP
+    - name: data
+      port: 8081
+      targetPort: {{ .Values.dataPlane.servicePort }}
+      protocol: TCP
+    - name: workflow
+      port: 8082
+      targetPort: {{ .Values.workflowPlane.servicePort }}
+      protocol: TCP
+    - name: observability
+      port: 8083
+      targetPort: {{ .Values.observabilityPlane.servicePort }}
+      protocol: TCP
+  selector:
+    # Tracks down your core installer/routing pods to direct the ingress traffic
+    app.kubernetes.io/name: openchoreo-core
