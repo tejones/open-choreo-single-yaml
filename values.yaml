@@ -20,11 +20,26 @@ installer:
   wait: true
   cleanupOnFail: false
 
+# Combined Global Network & LoadBalancer Strategy Configuration
+ingressController:
+  # Deployment target options: metallb, aws, or generic
+  provider: metallb 
+  
+  service:
+    type: LoadBalancer
+    # MetalLB Specifics: The address pool name to request an external IP allocation from
+    metallbPool: "first-pool"
+    
+    # AWS Specifics: AWS Load Balancer Controller integration parameters
+    awsTargetType: "ip"       # options: instance, ip
+    awsScheme: "internet-facing" # options: internet-facing, internal
+
 openchoreo:
   version: "1.1.0"
   chartRegistry: "oci://ghcr.io/openchoreo/helm-charts"
   modulesRegistry: "oci://ghcr.io/openchoreo/charts"
-  domain: "localhost"
+  # Clean global variable pointing to your target base network zone
+  domain: "openchoreo.local"
 
 namespaces:
   controlPlane: openchoreo-control-plane
@@ -61,6 +76,8 @@ controlPlane:
   enabled: true
   releaseName: openchoreo-control-plane
   chart: openchoreo-control-plane
+  subdomain: console
+  servicePort: 8080
   values: {}
 
 dataPlane:
@@ -68,8 +85,10 @@ dataPlane:
   releaseName: openchoreo-data-plane
   chart: openchoreo-data-plane
   planeName: default
+  subdomain: api
+  servicePort: 8081
   gateway:
-    externalHost: openchoreoapis.localhost
+    externalHost: openchoreoapis.local
     externalPort: 19080
     gatewayName: gateway-default
     httpListenerName: http
@@ -80,6 +99,8 @@ workflowPlane:
   releaseName: openchoreo-workflow-plane
   chart: openchoreo-workflow-plane
   planeName: default
+  subdomain: workflow
+  servicePort: 8082
   installWorkflowTemplates: false
   workflowTemplatesBaseUrl: "https://raw.githubusercontent.com/openchoreo/openchoreo/main/samples/getting-started"
   values: {}
@@ -89,7 +110,9 @@ observabilityPlane:
   releaseName: openchoreo-observability-plane
   chart: openchoreo-observability-plane
   planeName: default
-  observerURL: "http://observer.openchoreo.localhost:11080"
+  subdomain: telemetry
+  servicePort: 8083
+  observerURL: "http://observer.openchoreo.local:11080"
   values: {}
   modules:
     logsOpenSearch:
