@@ -1,0 +1,30 @@
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Helm specific exclusions
+*.tgz
+charts/
+!templates/
+.helm/
+helm-charts/
+
+# Local configuration / testing files
+.kube/
+config
+my-values.yaml
+local-values.yaml
+*.local.yaml
+
+# Backup and temporary files
+*.bak
+*.swp
+*~
+.idea/
+.vscode/
+.history/

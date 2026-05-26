@@ -1,0 +1,48 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "openchoreo-single.fullname" . }}-ingress
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  rules:
+    - host: {{ include "controlPlane.url" . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "openchoreo-single.fullname" . }}-lb
+                port:
+                  name: control
+    - host: {{ include "dataPlane.url" . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "openchoreo-single.fullname" . }}-lb
+                port:
+                  name: data
+    - host: {{ include "workflowPlane.url" . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "openchoreo-single.fullname" . }}-lb
+                port:
+                  name: workflow
+    - host: {{ include "observabilityPlane.url" . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "openchoreo-single.fullname" . }}-lb
+                port:
+                  name: observability
