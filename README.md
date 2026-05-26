@@ -46,7 +46,7 @@ helm upgrade --install openchoreo-single ./openchoreo-single \
   --set observabilityPlane.enabled=true
 ```
 
-## OpenShift note
+## GATEWAY API note
 
 If your cluster already manages Kubernetes Gateway API CRDs, disable Gateway API CRD installation:
 
