@@ -1,0 +1,16 @@
+OpenChoreo single-chart installer has been submitted as a Helm hook Job.
+
+Watch installation:
+  kubectl logs -n {{ .Release.Namespace }} job/{{ include "openchoreo-single.fullname" . }} -f
+
+Check OpenChoreo pods:
+  kubectl get pods -n {{ .Values.namespaces.controlPlane }}
+  kubectl get pods -n {{ .Values.namespaces.dataPlane }}
+
+Uninstall this installer chart:
+  helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+Note: this does not automatically uninstall the plane releases installed by the Job.
+Uninstall those separately, for example:
+  helm uninstall openchoreo-control-plane -n {{ .Values.namespaces.controlPlane }}
+  helm uninstall openchoreo-data-plane -n {{ .Values.namespaces.dataPlane }}

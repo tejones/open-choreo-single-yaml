@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openchoreo-single.fullname" . }}-values
+  namespace: {{ .Release.Namespace }}
+data:
+  cert-manager-values.yaml: |
+{{ toYaml .Values.prerequisites.certManager.values | indent 4 }}
+  openbao-values.yaml: |
+{{ toYaml .Values.prerequisites.openbao.values | indent 4 }}
+  thunder-values.yaml: |
+{{ toYaml .Values.prerequisites.thunder.values | indent 4 }}
+  control-plane-values.yaml: |
+{{ toYaml .Values.controlPlane.values | indent 4 }}
+  data-plane-values.yaml: |
+{{ toYaml .Values.dataPlane.values | indent 4 }}
+  workflow-plane-values.yaml: |
+{{ toYaml .Values.workflowPlane.values | indent 4 }}
+  observability-plane-values.yaml: |
+{{ toYaml .Values.observabilityPlane.values | indent 4 }}
+  logs-opensearch-values.yaml: |
+{{ toYaml .Values.observabilityPlane.modules.logsOpenSearch.values | indent 4 }}
+  metrics-prometheus-values.yaml: |
+{{ toYaml .Values.observabilityPlane.modules.metricsPrometheus.values | indent 4 }}
+  tracing-opensearch-values.yaml: |
+{{ toYaml .Values.observabilityPlane.modules.tracingOpenSearch.values | indent 4 }}

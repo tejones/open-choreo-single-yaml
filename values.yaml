@@ -1,0 +1,115 @@
+# OpenChoreo single-chart installer defaults.
+# This chart runs a Helm/Kubectl Job that installs the official OpenChoreo OCI charts in sequence.
+
+image:
+  repository: alpine/k8s
+  tag: "1.33.0"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: openchoreo-single-installer
+
+rbac:
+  create: true
+
+installer:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  timeout: 25m
+  wait: true
+  cleanupOnFail: false
+
+openchoreo:
+  version: "1.1.0"
+  chartRegistry: "oci://ghcr.io/openchoreo/helm-charts"
+  modulesRegistry: "oci://ghcr.io/openchoreo/charts"
+  domain: "localhost"
+
+namespaces:
+  controlPlane: openchoreo-control-plane
+  dataPlane: openchoreo-data-plane
+  workflowPlane: openchoreo-workflow-plane
+  observabilityPlane: openchoreo-observability-plane
+  openbao: openbao
+  thunder: thunder
+
+prerequisites:
+  gatewayApi:
+    enabled: true
+    # Use standard CRDs. For OpenShift, set enabled=false if Gateway API is managed by the cluster.
+    crdUrl: "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/standard-install.yaml"
+  certManager:
+    enabled: true
+    chart: "oci://quay.io/jetstack/charts/cert-manager"
+    version: "v1.18.2"
+    values:
+      crds:
+        enabled: true
+  openbao:
+    enabled: true
+    chart: "oci://ghcr.io/openbao/charts/openbao"
+    version: "0.25.6"
+    values: {}
+  thunder:
+    enabled: true
+    chart: "oci://ghcr.io/asgardeo/helm-charts/thunder"
+    version: "0.24.0"
+    values: {}
+
+controlPlane:
+  enabled: true
+  releaseName: openchoreo-control-plane
+  chart: openchoreo-control-plane
+  values: {}
+
+dataPlane:
+  enabled: true
+  releaseName: openchoreo-data-plane
+  chart: openchoreo-data-plane
+  planeName: default
+  gateway:
+    externalHost: openchoreoapis.localhost
+    externalPort: 19080
+    gatewayName: gateway-default
+    httpListenerName: http
+  values: {}
+
+workflowPlane:
+  enabled: false
+  releaseName: openchoreo-workflow-plane
+  chart: openchoreo-workflow-plane
+  planeName: default
+  installWorkflowTemplates: false
+  workflowTemplatesBaseUrl: "https://raw.githubusercontent.com/openchoreo/openchoreo/main/samples/getting-started"
+  values: {}
+
+observabilityPlane:
+  enabled: false
+  releaseName: openchoreo-observability-plane
+  chart: openchoreo-observability-plane
+  planeName: default
+  observerURL: "http://observer.openchoreo.localhost:11080"
+  values: {}
+  modules:
+    logsOpenSearch:
+      enabled: false
+      chart: observability-logs-opensearch
+      version: "0.3.2"
+      values:
+        openSearchSetup:
+          openSearchSecretName: opensearch-admin-credentials
+    metricsPrometheus:
+      enabled: false
+      chart: observability-metrics-prometheus
+      version: "0.2.2"
+      values: {}
+    tracingOpenSearch:
+      enabled: false
+      chart: observability-tracing-opensearch
+      version: "0.3.3"
+      values:
+        openSearch:
+          enabled: false
+        openSearchSetup:
+          openSearchSecretName: opensearch-admin-credentials

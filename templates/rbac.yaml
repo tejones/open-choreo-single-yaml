@@ -1,0 +1,25 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "openchoreo-single.fullname" . }}
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+  - nonResourceURLs: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "openchoreo-single.fullname" . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "openchoreo-single.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "openchoreo-single.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -1,0 +1,164 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openchoreo-single.fullname" . }}-script
+  namespace: {{ .Release.Namespace }}
+data:
+  install.sh: |
+    #!/usr/bin/env sh
+    set -eu
+
+    log() { echo "[$(date -Iseconds)] $*"; }
+
+    TIMEOUT="{{ .Values.installer.timeout }}"
+    WAIT_FLAG=""
+    {{- if .Values.installer.wait }}
+    WAIT_FLAG="--wait --timeout ${TIMEOUT}"
+    {{- end }}
+    CLEANUP_FLAG=""
+    {{- if .Values.installer.cleanupOnFail }}
+    CLEANUP_FLAG="--cleanup-on-fail"
+    {{- end }}
+
+    OPENCHOREO_VERSION="{{ .Values.openchoreo.version }}"
+    CHART_REGISTRY="{{ .Values.openchoreo.chartRegistry }}"
+    MODULES_REGISTRY="{{ .Values.openchoreo.modulesRegistry }}"
+    CP_NS="{{ .Values.namespaces.controlPlane }}"
+    DP_NS="{{ .Values.namespaces.dataPlane }}"
+    WP_NS="{{ .Values.namespaces.workflowPlane }}"
+    OP_NS="{{ .Values.namespaces.observabilityPlane }}"
+
+    helm_install() {
+      release="$1"; chart="$2"; namespace="$3"; version="$4"; values_file="$5"
+      log "Installing/upgrading ${release} from ${chart} into ${namespace}"
+      kubectl create namespace "${namespace}" --dry-run=client -o yaml | kubectl apply -f -
+      if [ -n "${version}" ]; then
+        helm upgrade --install "${release}" "${chart}" --namespace "${namespace}" --version "${version}" --values "${values_file}" ${WAIT_FLAG} ${CLEANUP_FLAG}
+      else
+        helm upgrade --install "${release}" "${chart}" --namespace "${namespace}" --values "${values_file}" ${WAIT_FLAG} ${CLEANUP_FLAG}
+      fi
+    }
+
+    copy_cluster_gateway_ca() {
+      ns="$1"
+      log "Copying cluster-gateway CA into ${ns}"
+      kubectl create namespace "${ns}" --dry-run=client -o yaml | kubectl apply -f -
+      kubectl wait -n "${CP_NS}" --for=condition=Ready certificate/cluster-gateway-ca --timeout=180s || true
+      CA_CRT="$(kubectl get secret cluster-gateway-ca -n "${CP_NS}" -o jsonpath='{.data.ca\.crt}' | base64 -d)"
+      kubectl create configmap cluster-gateway-ca --from-literal=ca.crt="${CA_CRT}" -n "${ns}" --dry-run=client -o yaml | kubectl apply -f -
+    }
+
+    agent_ca() {
+      ns="$1"
+      kubectl wait -n "${ns}" --for=jsonpath='{.data.ca\.crt}' secret/cluster-agent-tls --timeout=180s
+      kubectl get secret cluster-agent-tls -n "${ns}" -o jsonpath='{.data.ca\.crt}' | base64 -d
+    }
+
+    {{- if .Values.prerequisites.gatewayApi.enabled }}
+    log "Installing Kubernetes Gateway API CRDs"
+    kubectl apply --server-side -f "{{ .Values.prerequisites.gatewayApi.crdUrl }}" || kubectl apply -f "{{ .Values.prerequisites.gatewayApi.crdUrl }}"
+    {{- end }}
+
+    {{- if .Values.prerequisites.certManager.enabled }}
+    helm_install cert-manager "{{ .Values.prerequisites.certManager.chart }}" cert-manager "{{ .Values.prerequisites.certManager.version }}" /config/cert-manager-values.yaml
+    {{- end }}
+
+    {{- if .Values.prerequisites.openbao.enabled }}
+    helm_install openbao "{{ .Values.prerequisites.openbao.chart }}" "{{ .Values.namespaces.openbao }}" "{{ .Values.prerequisites.openbao.version }}" /config/openbao-values.yaml
+    {{- end }}
+
+    {{- if .Values.prerequisites.thunder.enabled }}
+    helm_install thunder "{{ .Values.prerequisites.thunder.chart }}" "{{ .Values.namespaces.thunder }}" "{{ .Values.prerequisites.thunder.version }}" /config/thunder-values.yaml
+    {{- end }}
+
+    {{- if .Values.controlPlane.enabled }}
+    helm_install "{{ .Values.controlPlane.releaseName }}" "${CHART_REGISTRY}/{{ .Values.controlPlane.chart }}" "${CP_NS}" "${OPENCHOREO_VERSION}" /config/control-plane-values.yaml
+    log "Waiting briefly for OpenChoreo control-plane webhook services"
+    kubectl wait -n "${CP_NS}" --for=condition=Available deployment --all --timeout=300s || true
+    {{- end }}
+
+    {{- if .Values.dataPlane.enabled }}
+    copy_cluster_gateway_ca "${DP_NS}"
+    helm_install "{{ .Values.dataPlane.releaseName }}" "${CHART_REGISTRY}/{{ .Values.dataPlane.chart }}" "${DP_NS}" "${OPENCHOREO_VERSION}" /config/data-plane-values.yaml
+    DP_CA="$(agent_ca "${DP_NS}")"
+    cat <<EOF_DP | kubectl apply -f -
+    apiVersion: openchoreo.dev/v1alpha1
+    kind: ClusterDataPlane
+    metadata:
+      name: {{ .Values.dataPlane.planeName }}
+    spec:
+      planeID: {{ .Values.dataPlane.planeName }}
+      clusterAgent:
+        clientCA:
+          value: |
+    $(echo "${DP_CA}" | sed 's/^/        /')
+      secretStoreRef:
+        name: default
+      gateway:
+        ingress:
+          external:
+            http:
+              host: {{ .Values.dataPlane.gateway.externalHost }}
+              listenerName: {{ .Values.dataPlane.gateway.httpListenerName }}
+              port: {{ .Values.dataPlane.gateway.externalPort }}
+            name: {{ .Values.dataPlane.gateway.gatewayName }}
+            namespace: {{ .Values.namespaces.dataPlane }}
+    EOF_DP
+    {{- end }}
+
+    {{- if .Values.workflowPlane.enabled }}
+    copy_cluster_gateway_ca "${WP_NS}"
+    helm_install "{{ .Values.workflowPlane.releaseName }}" "${CHART_REGISTRY}/{{ .Values.workflowPlane.chart }}" "${WP_NS}" "${OPENCHOREO_VERSION}" /config/workflow-plane-values.yaml
+    WP_CA="$(agent_ca "${WP_NS}")"
+    cat <<EOF_WP | kubectl apply -f -
+    apiVersion: openchoreo.dev/v1alpha1
+    kind: ClusterWorkflowPlane
+    metadata:
+      name: {{ .Values.workflowPlane.planeName }}
+    spec:
+      planeID: {{ .Values.workflowPlane.planeName }}
+      clusterAgent:
+        clientCA:
+          value: |
+    $(echo "${WP_CA}" | sed 's/^/        /')
+      secretStoreRef:
+        name: default
+    EOF_WP
+    {{- if .Values.workflowPlane.installWorkflowTemplates }}
+    kubectl apply \
+      -f {{ .Values.workflowPlane.workflowTemplatesBaseUrl }}/workflow-templates/checkout-source.yaml \
+      -f {{ .Values.workflowPlane.workflowTemplatesBaseUrl }}/workflow-templates.yaml \
+      -f {{ .Values.workflowPlane.workflowTemplatesBaseUrl }}/workflow-templates/publish-image-k3d.yaml \
+      -f {{ .Values.workflowPlane.workflowTemplatesBaseUrl }}/workflow-templates/generate-workload-k3d.yaml
+    {{- end }}
+    {{- end }}
+
+    {{- if .Values.observabilityPlane.enabled }}
+    copy_cluster_gateway_ca "${OP_NS}"
+    helm_install "{{ .Values.observabilityPlane.releaseName }}" "${CHART_REGISTRY}/{{ .Values.observabilityPlane.chart }}" "${OP_NS}" "${OPENCHOREO_VERSION}" /config/observability-plane-values.yaml
+    OP_CA="$(agent_ca "${OP_NS}")"
+    cat <<EOF_OP | kubectl apply -f -
+    apiVersion: openchoreo.dev/v1alpha1
+    kind: ClusterObservabilityPlane
+    metadata:
+      name: {{ .Values.observabilityPlane.planeName }}
+    spec:
+      planeID: {{ .Values.observabilityPlane.planeName }}
+      clusterAgent:
+        clientCA:
+          value: |
+    $(echo "${OP_CA}" | sed 's/^/        /')
+      observerURL: {{ .Values.observabilityPlane.observerURL }}
+    EOF_OP
+    {{- if .Values.observabilityPlane.modules.logsOpenSearch.enabled }}
+    helm_install observability-logs-opensearch "${MODULES_REGISTRY}/{{ .Values.observabilityPlane.modules.logsOpenSearch.chart }}" "${OP_NS}" "{{ .Values.observabilityPlane.modules.logsOpenSearch.version }}" /config/logs-opensearch-values.yaml
+    {{- end }}
+    {{- if .Values.observabilityPlane.modules.metricsPrometheus.enabled }}
+    helm_install observability-metrics-prometheus "${MODULES_REGISTRY}/{{ .Values.observabilityPlane.modules.metricsPrometheus.chart }}" "${OP_NS}" "{{ .Values.observabilityPlane.modules.metricsPrometheus.version }}" /config/metrics-prometheus-values.yaml
+    {{- end }}
+    {{- if .Values.observabilityPlane.modules.tracingOpenSearch.enabled }}
+    helm_install observability-tracing-opensearch "${MODULES_REGISTRY}/{{ .Values.observabilityPlane.modules.tracingOpenSearch.chart }}" "${OP_NS}" "{{ .Values.observabilityPlane.modules.tracingOpenSearch.version }}" /config/tracing-opensearch-values.yaml
+    {{- end }}
+    {{- end }}
+
+    log "OpenChoreo single-chart installation completed."
